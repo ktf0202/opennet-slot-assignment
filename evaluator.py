@@ -55,6 +55,7 @@ class EvaluationResult:
     rtp: float
     win_rate: float
     pattern_counts: Dict[str, int]
+    symbol_scaled_payout_breakdown: Dict[int, int]
 
     @property
     def is_valid(self) -> bool:
@@ -94,13 +95,23 @@ def max_circular_run_length(reel: Sequence[int]) -> int:
     return min(length, max_run)
 
 
+def count_circular_pairs(reel: Sequence[int]) -> Dict[int, int]:
+    """Counts vertically adjacent identical symbol pairs (s, s) on a circular reel."""
+    length = len(reel)
+    pairs = {s: 0 for s in range(5)}
+    for i in range(length):
+        if reel[i] == reel[(i + 1) % length]:
+            pairs[reel[i]] += 1
+    return pairs
+
+
 def _get_window_signatures(reel: Sequence[int]) -> List[Tuple[int, int, int, int]]:
     """
     Compresses all L windows of a reel into equivalence classes `(top_pair, bot_pair, full_triple, count)`.
     Because pattern matching only depends on whether the top 2 rows match (`top_pair`),
     whether the bottom 2 rows match (`bot_pair`), and whether all 3 rows match (`full_triple`),
     there are at most 16 distinct window signatures regardless of reel length L.
-    This accelerates exact evaluation on large drums (e.g. 24x25x30 = 18,000 states) by >100x.
+    This accelerates exact evaluation on large drums (e.g. 40x42x45 = 75,600 states) by >200x.
     """
     length = len(reel)
     counts: Dict[Tuple[int, int, int], int] = {}
@@ -207,7 +218,8 @@ def evaluate_reels_fast(reels: Sequence[Sequence[int]]) -> Tuple[int, int, int]:
 def evaluate_reels_detailed(reels: Sequence[Sequence[int]]) -> EvaluationResult:
     """
     Detailed exhaustive evaluation over all L1 * L2 * L3 stop positions,
-    including hit counts for each of the 5 winning patterns (4.1 - 4.5).
+    including hit counts for each of the 5 winning patterns (4.1 - 4.5) and
+    per-symbol scaled payout contributions.
     """
     w_list_0 = get_reel_windows(reels[0])
     w_list_1 = get_reel_windows(reels[1])
@@ -223,6 +235,7 @@ def evaluate_reels_detailed(reels: Sequence[Sequence[int]]) -> EvaluationResult:
         "4.4_bottom_right_2x2": 0,
         "4.5_full_3x3": 0,
     }
+    symbol_scaled_payout = {s: 0 for s in range(5)}
 
     for w0 in w_list_0:
         for w1 in w_list_1:
@@ -240,7 +253,9 @@ def evaluate_reels_detailed(reels: Sequence[Sequence[int]]) -> EvaluationResult:
                     ):
                         pattern_counts["4.5_full_3x3"] += 1
                         winning_states += 1
-                        total_scaled_payout += SCALED_MULTIPLIERS[s] * 5
+                        pts = SCALED_MULTIPLIERS[s] * 5
+                        total_scaled_payout += pts
+                        symbol_scaled_payout[s] += pts
                         continue
 
                 score = 0
@@ -248,19 +263,27 @@ def evaluate_reels_detailed(reels: Sequence[Sequence[int]]) -> EvaluationResult:
                     s_top = w1[0]
                     if w0[0] == s_top and w0[1] == s_top:
                         pattern_counts["4.1_top_left_2x2"] += 1
-                        score += SCALED_MULTIPLIERS[s_top]
+                        pts = SCALED_MULTIPLIERS[s_top]
+                        score += pts
+                        symbol_scaled_payout[s_top] += pts
                     if w2[0] == s_top and w2[1] == s_top:
                         pattern_counts["4.2_top_right_2x2"] += 1
-                        score += SCALED_MULTIPLIERS[s_top]
+                        pts = SCALED_MULTIPLIERS[s_top]
+                        score += pts
+                        symbol_scaled_payout[s_top] += pts
 
                 if mid_bot_match:
                     s_bot = w1[1]
                     if w0[1] == s_bot and w0[2] == s_bot:
                         pattern_counts["4.3_bottom_left_2x2"] += 1
-                        score += SCALED_MULTIPLIERS[s_bot]
+                        pts = SCALED_MULTIPLIERS[s_bot]
+                        score += pts
+                        symbol_scaled_payout[s_bot] += pts
                     if w2[1] == s_bot and w2[2] == s_bot:
                         pattern_counts["4.4_bottom_right_2x2"] += 1
-                        score += SCALED_MULTIPLIERS[s_bot]
+                        pts = SCALED_MULTIPLIERS[s_bot]
+                        score += pts
+                        symbol_scaled_payout[s_bot] += pts
 
                 if score > 0:
                     winning_states += 1
@@ -277,6 +300,7 @@ def evaluate_reels_detailed(reels: Sequence[Sequence[int]]) -> EvaluationResult:
         rtp=rtp,
         win_rate=win_rate,
         pattern_counts=pattern_counts,
+        symbol_scaled_payout_breakdown=symbol_scaled_payout,
     )
 
 

@@ -33,6 +33,7 @@ from evaluator import (
     SCALE_FACTOR,
     TARGET_SCALED_RTP,
     MIN_WIN_RATE,
+    count_circular_pairs,
     evaluate_reels_fast,
     max_circular_run_length,
 )
@@ -63,13 +64,14 @@ class MemeticSlotSolver:
     """
     Memetic Algorithm (GA + Local Search) solver for finding valid 3x3 slot reels.
     Supports optional realism constraints:
-      - `require_all_symbols_per_reel`: Every reel must contain all 5 symbols {0,1,2,3,4}.
+      - `require_all_symbols_winning`: Every reel must contain winning vertical pairs (s, s)
+        for all 5 symbols {0, 1, 2, 3, 4}, ensuring all 5 symbols actively win.
       - `max_run_length`: Caps the maximum consecutive run of identical symbols on any reel.
     """
 
     def __init__(
         self,
-        reel_lengths: Tuple[int, int, int] = (24, 25, 30),
+        reel_lengths: Tuple[int, int, int] = (40, 42, 45),
         population_size: int = 40,
         elite_size: int = 4,
         tournament_k: int = 4,
@@ -77,8 +79,8 @@ class MemeticSlotSolver:
         mutation_rate: float = 0.30,
         max_generations: int = 300,
         stagnation_limit: int = 6,
-        require_all_symbols_per_reel: bool = True,
-        max_run_length: Optional[int] = 6,
+        require_all_symbols_winning: bool = True,
+        max_run_length: Optional[int] = 5,
         seed: Optional[int] = 42,
     ) -> None:
         self.reel_lengths = reel_lengths
@@ -89,7 +91,7 @@ class MemeticSlotSolver:
         self.mutation_rate = mutation_rate
         self.max_generations = max_generations
         self.stagnation_limit = stagnation_limit
-        self.require_all_symbols_per_reel = require_all_symbols_per_reel
+        self.require_all_symbols_winning = require_all_symbols_winning
         self.max_run_length = max_run_length
         self.rng = random.Random(seed)
 
@@ -105,27 +107,30 @@ class MemeticSlotSolver:
         loss == 0 iff:
           1. winning_states >= min_winning_states (Win Rate >= 55%)
           2. total_scaled_payout == target_scaled_score (Exact RTP == 0.95)
-          3. All 5 symbols {0, 1, 2, 3, 4} appear on each reel (if enabled)
+          3. Every symbol {0, 1, 2, 3, 4} forms at least 1 winning vertical pair on each reel (if enabled)
           4. Max consecutive run on each reel <= max_run_length (if enabled)
         """
         _, wins, scaled_score = evaluate_reels_fast(reels)
         win_shortfall = max(0, self.min_winning_states - wins)
         score_diff = abs(scaled_score - self.target_scaled_score)
 
-        missing_per_reel = 0
+        missing_winning_pairs = 0
         run_excess = 0
         for r in reels:
-            if self.require_all_symbols_per_reel:
-                missing_per_reel += 5 - len(set(r))
+            if self.require_all_symbols_winning:
+                pairs = count_circular_pairs(r)
+                for s in range(5):
+                    if pairs[s] < 1:
+                        missing_winning_pairs += 1
             if self.max_run_length is not None:
                 mr = max_circular_run_length(r)
                 if mr > self.max_run_length:
                     run_excess += mr - self.max_run_length
 
         loss = (
-            missing_per_reel * 500000
-            + run_excess * 100000
-            + win_shortfall * 5000
+            missing_winning_pairs * 10_000_000
+            + run_excess * 5_000_000
+            + win_shortfall * 5_000
             + score_diff
         )
         return loss, wins, scaled_score
@@ -133,23 +138,44 @@ class MemeticSlotSolver:
     def _create_heuristic_reel(self, length: int) -> List[int]:
         """
         Initializes a single reel.
-        For large realistic drums (length >= 20), interleaves 4 separate stacks of
-        symbol 0 with short stacks containing symbols 1, 2, 3, and 4 so all 5 symbols
-        are naturally distributed across the drum without monolithic blocks.
+        For large realistic drums (length >= 35) with all 5 symbols winning,
+        interleaves 5 or 6 stacks of symbol 0 (length 4..5) with winning stacks of
+        symbols 1, 2, 3, and 4 (length 2..5) so every symbol actively wins while
+        respecting `max_run_length <= 5`.
         """
-        if length >= 20 and self.require_all_symbols_per_reel:
-            non_zero_groups = [[1, 1], [2, 2], [3, 1], [4, 4]]
-            self.rng.shuffle(non_zero_groups)
-            total_non_zero = sum(len(g) for g in non_zero_groups)
-            rem_zeros = length - total_non_zero
-            z_lens = [0, 0, 0, 0]
-            for i in range(rem_zeros):
-                z_lens[i % 4] += 1
+        if length >= 35 and self.require_all_symbols_winning:
+            k_stacks = 6 if length >= 44 else 5
+            non_zero_syms = [1, 2, 3, 4, 4] if k_stacks == 5 else [1, 2, 3, 4, 4, 4]
+            self.rng.shuffle(non_zero_syms)
+
+            z_lens = [self.rng.choice([4, 5]) for _ in range(k_stacks)]
+            nz_lens = [
+                self.rng.choice([3, 4, 5]) if s == 4 else self.rng.choice([2, 3])
+                for s in non_zero_syms
+            ]
+            total = sum(z_lens) + sum(nz_lens)
+
+            while total != length:
+                idx = self.rng.randrange(k_stacks)
+                if total < length:
+                    if z_lens[idx] < 5:
+                        z_lens[idx] += 1
+                        total += 1
+                    elif nz_lens[idx] < 5:
+                        nz_lens[idx] += 1
+                        total += 1
+                else:
+                    if z_lens[idx] > 4:
+                        z_lens[idx] -= 1
+                        total -= 1
+                    elif nz_lens[idx] > 2:
+                        nz_lens[idx] -= 1
+                        total -= 1
 
             reel: List[int] = []
-            for k in range(4):
+            for k in range(k_stacks):
                 reel.extend([0] * z_lens[k])
-                reel.extend(non_zero_groups[k])
+                reel.extend([non_zero_syms[k]] * nz_lens[k])
             return reel
 
         symbol_pool = [0, 0, 0, 0, 0, 1, 1, 2, 3, 4]

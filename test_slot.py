@@ -9,6 +9,7 @@ import unittest
 from evaluator import (
     SCALED_MULTIPLIERS,
     TARGET_SCALED_RTP,
+    count_circular_pairs,
     evaluate_grid_scaled,
     evaluate_reels_detailed,
     evaluate_reels_fast,
@@ -50,11 +51,20 @@ class TestSlotEvaluatorAndSolver(unittest.TestCase):
         w2 = (0, 0, 3)
         self.assertEqual(evaluate_grid_scaled(w0, w1, w2), SCALED_MULTIPLIERS[0] * 2)
 
-    def test_verified_realistic_large_24x25x30_solution(self) -> None:
+    def test_verified_all_5_symbols_winning_40x42x45_solution(self) -> None:
         reels = [
-            [0, 4, 4, 4, 4, 4, 4, 0, 0, 1, 1, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 3, 0],
-            [0, 0, 0, 0, 0, 1, 0, 0, 0, 4, 4, 4, 4, 4, 4, 0, 0, 3, 0, 0, 0, 0, 0, 2, 0],
-            [4, 4, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 4, 4, 4],
+            [
+                0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 2, 2, 0, 0, 0, 0,
+                0, 3, 3, 3, 0, 0, 0, 0, 4, 4, 4, 4, 0, 0, 0, 0, 4, 4, 4, 4,
+            ],
+            [
+                0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 2, 2, 0, 0, 0, 0, 0,
+                3, 3, 0, 0, 0, 0, 0, 4, 4, 4, 4, 4, 0, 0, 0, 0, 0, 4, 4, 4, 4, 4,
+            ],
+            [
+                0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 3, 3,
+                0, 0, 0, 0, 4, 4, 4, 4, 4, 0, 0, 0, 0, 4, 4, 4, 4, 0, 0, 0, 0, 4, 4, 4, 4,
+            ],
         ]
         detail = evaluate_reels_detailed(reels)
         fast_states, fast_wins, fast_score = evaluate_reels_fast(reels)
@@ -64,14 +74,26 @@ class TestSlotEvaluatorAndSolver(unittest.TestCase):
         self.assertEqual(fast_score, detail.total_scaled_payout)
 
         self.assertTrue(detail.is_valid)
-        self.assertEqual(detail.total_states, 18000)
-        self.assertEqual(detail.total_scaled_payout, 18000 * TARGET_SCALED_RTP)
+        self.assertEqual(detail.total_states, 75600)
+        self.assertEqual(detail.total_scaled_payout, 75600 * TARGET_SCALED_RTP)
         self.assertAlmostEqual(detail.rtp, 0.95, places=9)
         self.assertGreaterEqual(detail.win_rate, 0.55)
 
+        # Verify every reel has max_run_length <= 5 and winning pairs for all 5 symbols
         for r in reels:
             self.assertEqual(set(r), {0, 1, 2, 3, 4})
-            self.assertLessEqual(max_circular_run_length(r), 6)
+            self.assertLessEqual(max_circular_run_length(r), 5)
+            pairs = count_circular_pairs(r)
+            for s in range(5):
+                self.assertGreaterEqual(pairs[s], 1)
+
+        # Verify all 5 symbols {0, 1, 2, 3, 4} actively contribute to the payout
+        for s in range(5):
+            self.assertGreater(detail.symbol_scaled_payout_breakdown[s], 0)
+        self.assertEqual(
+            sum(detail.symbol_scaled_payout_breakdown.values()),
+            detail.total_scaled_payout,
+        )
 
     def test_verified_compact_10x10x10_solution(self) -> None:
         reels = [
@@ -89,7 +111,7 @@ class TestSlotEvaluatorAndSolver(unittest.TestCase):
     def test_memetic_solver_convergence(self) -> None:
         solver = MemeticSlotSolver(
             reel_lengths=(10, 10, 10),
-            require_all_symbols_per_reel=False,
+            require_all_symbols_winning=False,
             max_run_length=None,
             seed=42,
         )

@@ -34,6 +34,7 @@ from evaluator import (
     TARGET_SCALED_RTP,
     MIN_WIN_RATE,
     evaluate_reels_fast,
+    max_circular_run_length,
 )
 
 Chromosome = List[List[int]]  # [reel_0, reel_1, reel_2]
@@ -61,19 +62,23 @@ class SolverResult:
 class MemeticSlotSolver:
     """
     Memetic Algorithm (GA + Local Search) solver for finding valid 3x3 slot reels.
+    Supports optional realism constraints:
+      - `require_all_symbols_per_reel`: Every reel must contain all 5 symbols {0,1,2,3,4}.
+      - `max_run_length`: Caps the maximum consecutive run of identical symbols on any reel.
     """
 
     def __init__(
         self,
-        reel_lengths: Tuple[int, int, int] = (10, 10, 12),
-        population_size: int = 50,
+        reel_lengths: Tuple[int, int, int] = (24, 25, 30),
+        population_size: int = 40,
         elite_size: int = 4,
         tournament_k: int = 4,
         crossover_rate: float = 0.85,
         mutation_rate: float = 0.30,
         max_generations: int = 300,
-        stagnation_limit: int = 8,
-        require_all_symbols: bool = False,
+        stagnation_limit: int = 6,
+        require_all_symbols_per_reel: bool = True,
+        max_run_length: Optional[int] = 6,
         seed: Optional[int] = 42,
     ) -> None:
         self.reel_lengths = reel_lengths
@@ -84,7 +89,8 @@ class MemeticSlotSolver:
         self.mutation_rate = mutation_rate
         self.max_generations = max_generations
         self.stagnation_limit = stagnation_limit
-        self.require_all_symbols = require_all_symbols
+        self.require_all_symbols_per_reel = require_all_symbols_per_reel
+        self.max_run_length = max_run_length
         self.rng = random.Random(seed)
 
         self.total_states = reel_lengths[0] * reel_lengths[1] * reel_lengths[2]
@@ -99,30 +105,55 @@ class MemeticSlotSolver:
         loss == 0 iff:
           1. winning_states >= min_winning_states (Win Rate >= 55%)
           2. total_scaled_payout == target_scaled_score (Exact RTP == 0.95)
-          3. All 5 symbols {0, 1, 2, 3, 4} appear if require_all_symbols is True
+          3. All 5 symbols {0, 1, 2, 3, 4} appear on each reel (if enabled)
+          4. Max consecutive run on each reel <= max_run_length (if enabled)
         """
         _, wins, scaled_score = evaluate_reels_fast(reels)
         win_shortfall = max(0, self.min_winning_states - wins)
         score_diff = abs(scaled_score - self.target_scaled_score)
 
-        missing_count = 0
-        if self.require_all_symbols:
-            present = set(reels[0]) | set(reels[1]) | set(reels[2])
-            missing_count = 5 - len(present)
+        missing_per_reel = 0
+        run_excess = 0
+        for r in reels:
+            if self.require_all_symbols_per_reel:
+                missing_per_reel += 5 - len(set(r))
+            if self.max_run_length is not None:
+                mr = max_circular_run_length(r)
+                if mr > self.max_run_length:
+                    run_excess += mr - self.max_run_length
 
-        loss = win_shortfall * 10000 + score_diff * 10 + missing_count
+        loss = (
+            missing_per_reel * 500000
+            + run_excess * 100000
+            + win_shortfall * 5000
+            + score_diff
+        )
         return loss, wins, scaled_score
 
     def _create_heuristic_reel(self, length: int) -> List[int]:
         """
-        Initializes a single reel with short runs (pairs/triples) of symbols.
-        Because all 2x2 and 3x3 winning patterns require vertically adjacent
-        identical symbols, seeding reels with consecutive pairs of low-multiplier
-        symbols (0 and 1) alongside higher symbols (2, 3, 4) helps the initial
-        population quickly reach high win rates while keeping RTP near 0.95.
+        Initializes a single reel.
+        For large realistic drums (length >= 20), interleaves 4 separate stacks of
+        symbol 0 with short stacks containing symbols 1, 2, 3, and 4 so all 5 symbols
+        are naturally distributed across the drum without monolithic blocks.
         """
+        if length >= 20 and self.require_all_symbols_per_reel:
+            non_zero_groups = [[1, 1], [2, 2], [3, 1], [4, 4]]
+            self.rng.shuffle(non_zero_groups)
+            total_non_zero = sum(len(g) for g in non_zero_groups)
+            rem_zeros = length - total_non_zero
+            z_lens = [0, 0, 0, 0]
+            for i in range(rem_zeros):
+                z_lens[i % 4] += 1
+
+            reel: List[int] = []
+            for k in range(4):
+                reel.extend([0] * z_lens[k])
+                reel.extend(non_zero_groups[k])
+            return reel
+
         symbol_pool = [0, 0, 0, 0, 0, 1, 1, 2, 3, 4]
-        reel: List[int] = []
+        reel = []
         while len(reel) < length:
             sym = self.rng.choice(symbol_pool)
             run_len = self.rng.choice([1, 2, 3, 4])
@@ -195,7 +226,7 @@ class MemeticSlotSolver:
     def local_search(
         self,
         chromosome: Chromosome,
-        max_steps: int = 30,
+        max_steps: int = 35,
     ) -> Tuple[Chromosome, int, int, int]:
         """
         Memetic Local Search (First-Improvement Hill Climbing):
@@ -284,7 +315,6 @@ class MemeticSlotSolver:
         previous_best_loss = float("inf")
 
         for gen in range(1, self.max_generations + 1):
-            # 1. Evaluate current population
             evals = [self.compute_loss(chrom) for chrom in population]
             ranked = sorted(
                 zip(population, evals),
@@ -294,17 +324,15 @@ class MemeticSlotSolver:
             population = [item[0] for item in ranked]
             losses = [item[1][0] for item in ranked]
 
-            # 2. Apply Memetic Local Search to the top 4 elite chromosomes
             for elite_idx in range(min(4, len(population))):
                 refined_chrom, refined_loss, refined_wins, refined_score = (
-                    self.local_search(population[elite_idx], max_steps=30)
+                    self.local_search(population[elite_idx], max_steps=35)
                 )
                 if refined_loss <= losses[elite_idx]:
                     population[elite_idx] = refined_chrom
                     losses[elite_idx] = refined_loss
                     evals[elite_idx] = (refined_loss, refined_wins, refined_score)
 
-            # Re-sort after local search refinement
             ranked = sorted(
                 zip(population, evals),
                 key=lambda item: item[1][0],
@@ -327,7 +355,6 @@ class MemeticSlotSolver:
                 )
             )
 
-            # Check termination criterion: Exact RTP == 0.95 and Win Rate >= 55%
             if best_loss == 0:
                 return SolverResult(
                     reels=best_chrom,
@@ -339,7 +366,6 @@ class MemeticSlotSolver:
                     history=history,
                 )
 
-            # Track stagnation and trigger population restart if stuck
             if best_loss < previous_best_loss:
                 previous_best_loss = best_loss
                 stagnation_counter = 0
@@ -352,7 +378,6 @@ class MemeticSlotSolver:
                 previous_best_loss = float("inf")
                 continue
 
-            # 3. Build next generation via Elitism + Tournament Selection + Crossover + Mutation
             next_population: List[Chromosome] = [
                 copy.deepcopy(population[i]) for i in range(self.elite_size)
             ]

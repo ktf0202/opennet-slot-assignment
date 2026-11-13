@@ -6,11 +6,169 @@
     "3": 3,
     "4": 5
   },
-  "primary_solution_10x10x10": {
+  "primary_realistic_large_drums_24x25x30": {
+    "reel_lengths": [
+      24,
+      25,
+      30
+    ],
+    "max_run_length_per_reel": [
+      6,
+      6,
+      6
+    ],
+    "symbols_per_reel": [
+      [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
+    ],
+    "reels": {
+      "reel_1": [
+        0,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        0,
+        0,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0,
+        3,
+        0
+      ],
+      "reel_2": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        0,
+        0,
+        3,
+        0,
+        0,
+        0,
+        0,
+        0,
+        2,
+        0
+      ],
+      "reel_3": [
+        4,
+        4,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        3,
+        0,
+        0,
+        0,
+        0,
+        0,
+        4,
+        4,
+        4
+      ]
+    },
+    "verification": {
+      "total_states": 18000,
+      "winning_states": 11068,
+      "win_rate": 0.614889,
+      "total_scaled_payout_x20": 342000,
+      "target_scaled_payout_x20": 342000,
+      "exact_rtp": 0.95,
+      "expected_return_per_100_bet": 95,
+      "pattern_counts": {
+        "4.1_top_left_2x2": 3630,
+        "4.2_top_right_2x2": 4944,
+        "4.3_bottom_left_2x2": 3630,
+        "4.4_bottom_right_2x2": 4944,
+        "4.5_full_3x3": 720
+      },
+      "is_valid": true
+    }
+  },
+  "compact_hand_verifiable_10x10x10": {
     "reel_lengths": [
       10,
       10,
       10
+    ],
+    "max_run_length_per_reel": [
+      6,
+      7,
+      6
+    ],
+    "symbols_per_reel": [
+      [
+        0,
+        4
+      ],
+      [
+        0,
+        4
+      ],
+      [
+        0,
+        4
+      ]
     ],
     "reels": {
       "reel_1": [
@@ -64,75 +222,6 @@
         "4.3_bottom_left_2x2": 280,
         "4.4_bottom_right_2x2": 280,
         "4.5_full_3x3": 80
-      },
-      "is_valid": true
-    }
-  },
-  "uneven_drums_solution_10x12x15": {
-    "reel_lengths": [
-      10,
-      12,
-      15
-    ],
-    "reels": {
-      "reel_1": [
-        4,
-        4,
-        4,
-        4,
-        2,
-        3,
-        2,
-        2,
-        1,
-        1
-      ],
-      "reel_2": [
-        4,
-        4,
-        4,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
-      ],
-      "reel_3": [
-        4,
-        4,
-        4,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        1
-      ]
-    },
-    "verification": {
-      "total_states": 1800,
-      "winning_states": 1166,
-      "win_rate": 0.647778,
-      "total_scaled_payout_x20": 34200,
-      "target_scaled_payout_x20": 34200,
-      "exact_rtp": 0.95,
-      "expected_return_per_100_bet": 95,
-      "pattern_counts": {
-        "4.1_top_left_2x2": 88,
-        "4.2_top_right_2x2": 838,
-        "4.3_bottom_left_2x2": 88,
-        "4.4_bottom_right_2x2": 838,
-        "4.5_full_3x3": 2
       },
       "is_valid": true
     }
